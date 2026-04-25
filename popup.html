@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ZenNotif</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <!-- SETUP SCREEN -->
+  <div id="screen-setup" class="screen">
+    <div class="header">
+      <img src="icon48.png" alt="ZenNotif" class="logo-img">
+      <h1>ZenNotif</h1>
+      <p class="subtitle">Zendesk Ticket Notifier</p>
+    </div>
+    <div class="card">
+      <label for="input-subdomain">Zendesk Subdomain</label>
+      <div class="input-group">
+        <input type="text" id="input-subdomain" placeholder="company" spellcheck="false" autocomplete="off">
+        <span class="input-suffix">.zendesk.com</span>
+      </div>
+      <button id="btn-connect" class="btn-primary">
+        <span class="btn-text">Connect</span>
+        <span class="btn-loader" hidden></span>
+      </button>
+      <p class="hint">⚠️ Make sure you are logged into Zendesk in this browser.</p>
+      <p id="connect-error" class="error" hidden></p>
+    </div>
+  </div>
+
+  <!-- VIEW SELECTION SCREEN -->
+  <div id="screen-views" class="screen" hidden>
+    <div class="header compact">
+      <h2>Select Views</h2>
+      <p class="subtitle" id="user-info"></p>
+    </div>
+    <div class="card">
+      <div id="views-list" class="views-list">
+        <div class="loader-inline">Loading views...</div>
+      </div>
+      <button id="btn-save-views" class="btn-primary" disabled>Save & Start</button>
+      <button id="btn-back" class="btn-secondary" style="margin-top:8px" hidden>← Back</button>
+    </div>
+  </div>
+
+  <!-- MAIN DASHBOARD SCREEN -->
+  <div id="screen-dashboard" class="screen" hidden>
+    <div class="header compact">
+      <div class="status-bar">
+        <span id="status-dot" class="status-dot connected"></span>
+        <span id="status-text">Connected</span>
+        <label class="toggle" title="Enable/Disable monitoring">
+          <input type="checkbox" id="toggle-enabled" checked>
+          <span class="toggle-slider"></span>
+        </label>
+        <button id="btn-settings" class="btn-icon" title="Settings">⚙️</button>
+      </div>
+      <p class="subtitle" id="dash-user-info"></p>
+    </div>
+
+    <!-- Monitored Views -->
+    <div class="card">
+      <h3>Monitored Views</h3>
+      <div id="monitored-views" class="monitored-views"></div>
+    </div>
+
+    <!-- Settings -->
+    <div class="card always-active">
+      <h3>Settings</h3>
+
+      <div class="setting-row">
+        <span class="setting-label">⏱️ Check Speed</span>
+        <select id="select-interval">
+          <option value="10">Fast (10s)</option>
+          <option value="30">Medium (30s)</option>
+          <option value="60" selected>Normal (1 min)</option>
+        </select>
+      </div>
+
+      <div class="setting-row">
+        <span class="setting-label">🎯 Statuses</span>
+        <div class="checkbox-group" style="display: flex; gap: 12px; font-size: 13px;">
+          <label><input type="checkbox" class="status-chk" value="new" checked> New</label>
+          <label><input type="checkbox" class="status-chk" value="open" checked> Open</label>
+          <label><input type="checkbox" class="status-chk" value="pending"> Pending</label>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <span class="setting-label">🔔 Tone</span>
+        <div class="tone-group">
+          <select id="select-tone">
+            <option value="default">Default</option>
+            <option value="bell">Bell</option>
+            <option value="chime">Chime</option>
+            <option value="alert">Alert</option>
+            <option value="soft">Soft</option>
+          </select>
+          <button id="btn-test-tone" class="btn-icon" title="Test sound">▶️</button>
+        </div>
+      </div>
+
+      <div class="volume-row">
+        <span>🔊</span>
+        <input type="range" id="volume-slider" min="0" max="100" value="80">
+        <span id="volume-label">80%</span>
+      </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="card actions">
+      <button id="btn-check-now" class="btn-secondary">🔄 Check Now</button>
+      <p id="last-checked" class="hint"></p>
+    </div>
+
+    <!-- Recent History -->
+    <div class="card always-active">
+      <div class="history-header">
+        <h3>Recent History</h3>
+        <button id="btn-clear-history" class="btn-text-small" title="Clear history">Clear</button>
+      </div>
+      <div id="history-list" class="history-list">
+        <p class="hint">No notifications yet.</p>
+      </div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
