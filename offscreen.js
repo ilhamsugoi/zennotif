@@ -64,8 +64,8 @@ chrome.runtime.onMessage.addListener((msg) => {
   }
 });
 
-// Pinger interval di offscreen untuk menghindari "throttling" tab background Chrome
-// Ini menjamin interval 10 detik berjalan tepat waktu dan menjaga koneksi audio.
+// Pinger interval in offscreen to prevent Chrome background tab throttling.
+// This ensures the 10-second interval runs on time and keeps the audio connection alive.
 setInterval(() => {
   chrome.runtime.sendMessage({ type: 'offscreen-ping' }).catch(() => {});
 }, 5000);
