@@ -1,0 +1,48 @@
+name: Update Project Dashboard
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Update setiap hari jam 00:00 UTC
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+jobs:
+  update-dashboard:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+    
+    - name: Count Stats
+      id: stats
+      run: |
+        echo "COMMITS=$(git rev-list --count HEAD --since='30 days ago')" >> $GITHUB_ENV
+        echo "LAST_COMMIT=$(git log -1 --format=%cd --date=short)" >> $GITHUB_ENV
+    
+    - name: Update Dashboard Badge
+      run: |
+        # Update badge di README dengan data dinamis
+        # Ini contoh - bisa dikustomisasi lebih lanjut
+        echo "Dashboard updated at $(date)"
+    
+    - name: Commit Changes
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add DASHBOARD.md || true
+        git diff --quiet && git diff --staged --quiet || git commit -m "📊 Update dashboard stats [skip ci]"
+    
+    - name: Push Changes
+      uses: ad-m/github-push-action@master
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        branch: main
