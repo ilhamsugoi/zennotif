@@ -2,18 +2,18 @@
 // === ZenNotif - Content Script (Keep-Alive Pinger) ===
 // =====================================================================
 
-// Script ini berjalan DI DALAM halaman Zendesk (*.zendesk.com)
-// Tugasnya HANYA menjaga Service Worker tetap hidup dan bertindak
-// sebagai "Pinger" untuk memicu pengecekan super cepat (10/15 detik).
-// Logika utama (fetching, komparasi) tetap berada di background.js 
-// sehingga aman dari spam API jika ada banyak tab Zendesk yang terbuka.
+// This script runs INSIDE Zendesk pages (*.zendesk.com).
+// Its ONLY job is to keep the Service Worker alive and act as a
+// "Pinger" to trigger fast polling checks (10/15 seconds).
+// Core logic (fetching, comparison) remains in background.js,
+// so it's safe from API spam even with multiple Zendesk tabs open.
 
 setInterval(() => {
   try {
-    // Kirim ping ke background script setiap 5 detik
+    // Send ping to background script every 5 seconds
     chrome.runtime.sendMessage({ type: 'content-ping' });
   } catch (e) {
-    // Abaikan error (biasanya terjadi sesaat setelah ekstensi di-reload atau diupdate)
+    // Ignore errors (usually happens briefly after extension reload or update)
   }
 }, 5000);
 
