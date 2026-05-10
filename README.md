@@ -3,9 +3,13 @@
 [![Chrome Extension](https://img.shields.io/badge/Chrome-Extension-green?logo=google-chrome)](#installation)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Manifest V3](https://img.shields.io/badge/Manifest-V3-blue)](https://developer.chrome.com/docs/extensions/mv3/intro/)
+[![Version](https://img.shields.io/badge/version-5.1.0-brightgreen)](CHANGELOG.md)
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-↗-purple)](https://ilhamsugoi.github.io/zennotif/)
 
 > Never miss a critical ticket. ZenNotif alerts support teams when new tickets arrive.
 >
+
+📖 **[Changelog](CHANGELOG.md)** · 🏗️ **[Architecture](ARCHITECTURE.md)** · 🏢 **[Enterprise compatibility](#enterprise-compatibility)**
 
 
 ## 📹 Demo Videos
@@ -178,6 +182,32 @@ ZenNotif fills this gap for Zendesk with **zero configuration overhead** — no 
 - Works with all Zendesk plans (including Basic)
 - Predictable resource usage
 - Trade-off: 10-60 second delay vs. instant webhooks
+
+## Enterprise Compatibility
+
+ZenNotif is designed to work in typical enterprise environments without bespoke configuration.
+
+| Scenario | Status | Notes |
+|----------|--------|-------|
+| **Corporate VPN** | ✅ Works | If the browser can reach Zendesk, ZenNotif can. Traffic is standard HTTPS to `<subdomain>.zendesk.com/api/v2`. |
+| **Help Center host mapping** | ✅ Works | Custom Help Center domains (e.g. `help.company.com`) don't affect the agent workspace. The extension always calls the canonical Zendesk API subdomain. |
+| **SSO / SAML (Okta, Azure AD, Google)** | ✅ Works | Authentication relies on the browser's session cookie, so whatever login flow your org uses is inherited automatically. |
+| **Chrome profile sync** | ✅ Works | User settings live in `chrome.storage.sync`; badge/history/snapshots in `chrome.storage.local`. |
+| **SSL inspection / CASB** | ⚠️ Caveat | The root CA must be trusted by Chrome's certificate store. Blocked requests surface as a clear `Connection error` in the popup. |
+| **Chrome Enterprise `ExtensionInstallBlocklist`** | ⚠️ Caveat | Managed fleets need the extension ID added to the allowlist. Load-unpacked developer mode is blocked by default in managed policies. |
+| **Data residency** | ✅ Private | All state stays in `chrome.storage`. No analytics, no telemetry, no third-party endpoints. |
+
+### IT smoke test
+
+Ask the affected agent to open this URL in a new tab:
+
+```
+https://<subdomain>.zendesk.com/api/v2/users/me.json
+```
+
+- **JSON response** → network path is clear. If ZenNotif still fails, it's an extension-side issue.
+- **Login page** → the agent isn't signed in. Sign in once and the session cookie is set.
+- **Timeout / SSL error / block page** → network path is blocked. Loop in your security team; the extension will surface the same error.
 
 ## Roadmap
 

@@ -313,13 +313,64 @@ function generateTone(type, volume) {
 
 ## Error Handling
 
+### Typed Error Tokens
+
+As of v5.1.0, `fetchTickets()` returns a typed token on failure rather than a generic `null`, so callers can set the appropriate UI state and decide whether to retry.
+
+```javascript
+async function fetchTickets(subdomain, viewId) {
+  // ... fetch loop with Retry-After honouring for 429 ...
+  if (!response.ok) {
+    if (response.status === 401 || response.status === 403) return 'unauthorized';
+    if (response.status === 429) return 'rate-limited';
+    return 'error';
+  }
+  // success path
+  return allTickets;
+}
+```
+
+The main check function aggregates these across views and resolves a single connection status:
+
+```javascript
+let connectionStatus = 'connected';
+if (hadUnauthorized) connectionStatus = 'expired';
+else if (hadRateLimited) connectionStatus = 'rate-limited';
+else if (hadError && allNewTickets.length === 0) connectionStatus = 'error';
+```
+
 ### Connection Errors
 
 | Error Type | Handling |
 |------------|----------|
-| 401/403 | Session expired → Set `connectionStatus: 'expired'` → UI shows re-login prompt |
-| Network failure | Log to console → Retry on next interval |
-| Parse error | Skip view → Continue with others |
+| 401 / 403 | Session expired → `connectionStatus: 'expired'` → UI shows re-login prompt |
+| 429 | Retry once honouring `Retry-After` (cap 10s) → if still 429, `connectionStatus: 'rate-limited'` |
+| Network failure | Log once → `connectionStatus: 'error'` → retry on next interval |
+| Parse error | Skip view → continue with others |
+
+### Reentrancy Guard
+
+The extension has three independent triggers that can all fire near-simultaneously:
+
+1. `chrome.alarms` periodic tick
+2. `content.js` keep-alive ping (every 5s, throttled by `lastCheckedTime`)
+3. Manual `Check Now` from the popup
+
+Without coordination, two concurrent `checkZendesk()` runs could both read the old snapshot, fetch, and then overwrite each other — losing notifications in the window between reads and writes.
+
+The fix is a single in-flight promise:
+
+```javascript
+let checkInFlight = null;
+
+function checkZendesk() {
+  if (checkInFlight) return checkInFlight;
+  checkInFlight = _checkZendesk().finally(() => { checkInFlight = null; });
+  return checkInFlight;
+}
+```
+
+All three triggers go through this shim, so a second call while the first is in-flight just awaits the same promise.
 
 ### Service Worker Resilience
 
@@ -331,6 +382,80 @@ function checkLoop() {
 
 // Alarms persist across SW restarts, so checks continue even after browser restart
 ```
+
+## Notification Context & Deep Linking
+
+When a Chrome notification fires, clicking it triggers `chrome.notifications.onClicked`. Extensions can't introspect what the notification represented — they only receive the notification ID.
+
+v5.1.0 introduces a lookup map keyed by notification ID:
+
+```javascript
+// chrome.storage.local key: 'notificationContext'
+{
+  "zennotif-1715311245123": { ticketId: 12345 },   // single-ticket notification
+  "zennotif-1715311256789": { ticketId: null }     // multi-ticket → dashboard
+}
+```
+
+When a notification batch contains exactly one ticket, clicking it deep-links to `/agent/tickets/<id>`. Multi-ticket batches route to `/agent/dashboard`. The map is pruned to the last 20 entries to avoid unbounded growth.
+
+## Storage Quota Management
+
+`chrome.storage.local` has a hard 10 MB quota per extension. A support org running an "Unassigned" view with 50k+ tickets could push a single snapshot past 5 MB on its own, exhausting the quota.
+
+v5.1.0 adds a per-view cap:
+
+```javascript
+const MAX_SNAPSHOT_ENTRIES = 5000;
+
+function trimSnapshot(map) {
+  const keys = Object.keys(map);
+  if (keys.length <= MAX_SNAPSHOT_ENTRIES) return map;
+  // Keep the newest ticket IDs (numerically highest = newest in Zendesk).
+  const sorted = keys.map(Number).sort((a, b) => b - a).slice(0, MAX_SNAPSHOT_ENTRIES);
+  const trimmed = {};
+  for (const id of sorted) trimmed[id] = map[id];
+  return trimmed;
+}
+```
+
+This preserves correctness for detection of *new* tickets (the most-recent IDs are always retained) while bounding snapshot size at roughly 100-200 KB per view.
+
+## Rate Limit Handling
+
+Zendesk returns HTTP 429 with a `Retry-After` header when request rates exceed per-endpoint limits. v5.1.0 honours the header with a bounded retry:
+
+```javascript
+for (let attempt = 0; attempt < 2; attempt++) {
+  response = await fetch(nextUrl, { credentials: 'include', cache: 'no-cache' });
+  if (response.status !== 429) break;
+  const retryAfter = parseInt(response.headers.get('Retry-After') || '2', 10);
+  await new Promise(r => setTimeout(r, Math.min(retryAfter, 10) * 1000));
+}
+```
+
+The retry cap (10s) keeps a stuck endpoint from blocking the service worker indefinitely. After two failed attempts, the function returns `'rate-limited'` and the UI surfaces the state.
+
+## Session Cache
+
+`validateSession()` is called every time the popup opens. On a busy day that's dozens of unnecessary `/users/me.json` hits. v5.1.0 caches the result for 5 minutes per subdomain:
+
+```javascript
+const USER_CACHE_TTL_MS = 5 * 60 * 1000;
+
+async function validateSession(subdomain, { force = false } = {}) {
+  if (!force) {
+    const cached = await chrome.storage.local.get('userCache');
+    const entry = cached.userCache && cached.userCache[subdomain];
+    if (entry && (Date.now() - entry.ts) < USER_CACHE_TTL_MS) {
+      return { name: entry.name, email: entry.email };
+    }
+  }
+  // ... fallback to network fetch + cache update ...
+}
+```
+
+Callers that need a fresh check can pass `{ force: true }`.
 
 ## Performance Considerations
 
