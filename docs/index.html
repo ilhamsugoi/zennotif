@@ -1,0 +1,1481 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="ZenNotif — Chrome extension for Zendesk ticket notifications with persistent audio alerts. Built with Manifest V3, zero API tokens.">
+  <title>ZenNotif — Zendesk Ticket Notifications</title>
+  <link rel="icon" type="image/png" href="icon48.png">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:      oklch(99% 0.002 240);
+      --surface: oklch(100% 0 0);
+      --fg:      oklch(18% 0.012 250);
+      --muted:   oklch(54% 0.012 250);
+      --border:  oklch(92% 0.005 250);
+      --accent:  oklch(58% 0.18 255);
+      --font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
+      --font-body:    -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+      --font-mono:    'SF Mono', ui-monospace, 'Cascadia Code', 'Fira Code', Menlo, Consolas, monospace;
+      --nav-bg:   oklch(99% 0.002 240 / 0.85);
+      --card-bg:  var(--surface);
+      --code-bg:  oklch(97% 0.003 250);
+      --code-border: oklch(90% 0.005 250);
+    }
+
+    [data-theme="dark"] {
+      --bg:      oklch(12% 0.012 250);
+      --surface: oklch(16% 0.012 250);
+      --fg:      oklch(93% 0.005 240);
+      --muted:   oklch(60% 0.012 250);
+      --border:  oklch(24% 0.012 250);
+      --accent:  oklch(68% 0.18 255);
+      --nav-bg:  oklch(12% 0.012 250 / 0.85);
+      --card-bg: oklch(18% 0.012 250);
+      --code-bg: oklch(14% 0.012 250);
+      --code-border: oklch(24% 0.012 250);
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: var(--font-body);
+      background: var(--bg);
+      color: var(--fg);
+      line-height: 1.6;
+      font-size: 16px;
+      transition: background 0.3s ease, color 0.3s ease;
+    }
+
+    /* ── Navigation ── */
+    nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 100;
+      background: var(--nav-bg);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 2rem;
+      transition: background 0.3s ease, border-color 0.3s ease;
+    }
+
+    .nav-inner {
+      max-width: 1100px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 64px;
+      gap: 1rem;
+    }
+
+    .wordmark {
+      display: flex;
+      align-items: center;
+      gap: 0.55rem;
+      font-family: var(--font-display);
+      font-weight: 600;
+      font-size: 1.1rem;
+      letter-spacing: -0.02em;
+      color: var(--fg);
+      text-decoration: none;
+    }
+
+    .wordmark img { width: 24px; height: 24px; border-radius: 6px; }
+
+    .nav-links {
+      display: flex;
+      gap: 2rem;
+      list-style: none;
+      margin-left: auto;
+    }
+
+    .nav-links a {
+      font-size: 0.875rem;
+      color: var(--muted);
+      text-decoration: none;
+      transition: color 0.15s;
+      letter-spacing: 0.01em;
+    }
+
+    .nav-links a:hover { color: var(--fg); }
+
+    .nav-toggle {
+      display: none;
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 8px;
+    }
+
+    .nav-toggle svg { width: 24px; height: 24px; stroke: var(--fg); }
+
+    @media (max-width: 640px) {
+      .nav-links {
+        display: none;
+        position: absolute;
+        top: 64px; left: 0; right: 0;
+        flex-direction: column;
+        background: var(--surface);
+        border-bottom: 1px solid var(--border);
+        padding: 1rem 2rem;
+        gap: 1rem;
+        margin-left: 0;
+      }
+      .nav-links.open { display: flex; }
+      .nav-toggle { display: block; }
+    }
+
+    .theme-toggle {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      cursor: pointer;
+      padding: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--muted);
+      transition: color 0.2s, border-color 0.2s, background 0.2s;
+    }
+
+    .theme-toggle:hover {
+      color: var(--fg);
+      border-color: var(--muted);
+      background: var(--surface);
+    }
+
+    .theme-toggle svg { width: 18px; height: 18px; }
+    .theme-toggle .icon-sun { display: none; }
+    .theme-toggle .icon-moon { display: block; }
+    [data-theme="dark"] .theme-toggle .icon-sun { display: block; }
+    [data-theme="dark"] .theme-toggle .icon-moon { display: none; }
+
+    /* ── Hero ── */
+    .hero {
+      padding: 160px 2rem 80px;
+      max-width: 1100px;
+      margin: 0 auto;
+      text-align: center;
+    }
+
+    .hero-eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.85rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      color: var(--accent);
+      background: oklch(58% 0.18 255 / 0.08);
+      padding: 0.4rem 1rem;
+      border-radius: 100px;
+      border: 1px solid oklch(58% 0.18 255 / 0.15);
+      margin-bottom: 1.5rem;
+    }
+
+    [data-theme="dark"] .hero-eyebrow {
+      background: oklch(68% 0.18 255 / 0.12);
+      border-color: oklch(68% 0.18 255 / 0.25);
+    }
+
+    .hero h1 {
+      font-family: var(--font-display);
+      font-size: clamp(2rem, 5vw, 3.25rem);
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      line-height: 1.1;
+      color: var(--fg);
+      margin: 0 auto 1.5rem;
+      max-width: 780px;
+    }
+
+    .hero-sub {
+      font-size: 1.125rem;
+      color: var(--muted);
+      max-width: 640px;
+      margin: 0 auto 2.5rem;
+      line-height: 1.7;
+    }
+
+    .hero-tags {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 0.5rem;
+    }
+
+    .tag {
+      font-size: 0.8rem;
+      padding: 0.35rem 0.85rem;
+      border: 1px solid var(--border);
+      border-radius: 100px;
+      color: var(--muted);
+      background: var(--surface);
+    }
+
+    /* ── Sections ── */
+    section { padding: 48px 2rem; }
+    .section-inner { max-width: 1100px; margin: 0 auto; }
+
+    #interface {
+      background: linear-gradient(180deg, var(--bg) 0%, oklch(96% 0.02 255 / 0.5) 50%, var(--bg) 100%);
+    }
+    [data-theme="dark"] #interface {
+      background: linear-gradient(180deg, var(--bg) 0%, oklch(18% 0.03 255 / 0.4) 50%, var(--bg) 100%);
+    }
+
+    #features {
+      background: linear-gradient(180deg, var(--bg) 0%, oklch(96% 0.02 160 / 0.4) 50%, var(--bg) 100%);
+    }
+    [data-theme="dark"] #features {
+      background: linear-gradient(180deg, var(--bg) 0%, oklch(18% 0.03 160 / 0.3) 50%, var(--bg) 100%);
+    }
+
+    #code {
+      background: linear-gradient(180deg, var(--bg) 0%, oklch(96% 0.02 300 / 0.35) 50%, var(--bg) 100%);
+    }
+    [data-theme="dark"] #code {
+      background: linear-gradient(180deg, var(--bg) 0%, oklch(18% 0.03 300 / 0.3) 50%, var(--bg) 100%);
+    }
+
+    #install {
+      background: linear-gradient(180deg, var(--bg) 0%, oklch(96% 0.02 30 / 0.35) 50%, var(--bg) 100%);
+    }
+    [data-theme="dark"] #install {
+      background: linear-gradient(180deg, var(--bg) 0%, oklch(18% 0.03 30 / 0.3) 50%, var(--bg) 100%);
+    }
+
+    #enterprise {
+      background: linear-gradient(180deg, var(--bg) 0%, oklch(96% 0.02 80 / 0.35) 50%, var(--bg) 100%);
+    }
+    [data-theme="dark"] #enterprise {
+      background: linear-gradient(180deg, var(--bg) 0%, oklch(18% 0.03 80 / 0.3) 50%, var(--bg) 100%);
+    }
+
+    .section-label {
+      font-size: 1rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 0.75rem;
+      text-align: center;
+    }
+
+    .section-title {
+      font-family: var(--font-display);
+      font-size: clamp(1.75rem, 3.5vw, 2.25rem);
+      font-weight: 700;
+      letter-spacing: -0.025em;
+      color: var(--fg);
+      margin-bottom: 3rem;
+      text-align: center;
+    }
+
+    /* ── Interface mockup ── */
+    .mockup-grid {
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      gap: 2rem;
+      align-items: start;
+    }
+
+    @media (max-width: 900px) {
+      .mockup-grid { grid-template-columns: 1fr; }
+    }
+
+    .interface-showcase {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 1.5rem;
+      transition: background 0.3s, border-color 0.3s;
+    }
+
+    .interface-showcase img {
+      width: 100%;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      display: block;
+    }
+
+    .interface-caption {
+      text-align: center;
+      margin-top: 1rem;
+      font-size: 0.875rem;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+
+    /* ── Extension popup mockup ──
+       Scoped styling: always uses the real extension's dark theme + red/orange
+       brand, regardless of page theme, so visitors see what the popup actually
+       looks like in Chrome. */
+    .ext-mockup {
+      --x-bg:      #0f1117;
+      --x-card:    #1a1d27;
+      --x-border:  #2a2d3a;
+      --x-fg:      #e4e6eb;
+      --x-muted:   #8b8fa3;
+      --x-accent:  #e74c3c;
+      --x-accent2: #f39c12;
+      --x-green:   #2ecc71;
+
+      background: var(--x-bg);
+      border: 1px solid var(--x-border);
+      border-radius: 16px;
+      padding: 1rem;
+      color: var(--x-fg);
+      font-size: 13px;
+      box-shadow: 0 10px 40px oklch(12% 0.012 250 / 0.25);
+      transition: box-shadow 0.3s;
+    }
+
+    .ext-header {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      padding-bottom: 0.75rem;
+      margin-bottom: 0.75rem;
+      border-bottom: 1px solid var(--x-border);
+    }
+
+    .ext-header img {
+      width: 32px;
+      height: 32px;
+      filter: drop-shadow(0 0 8px rgba(231, 76, 60, 0.4));
+    }
+
+    .ext-header h4 {
+      font-family: var(--font-display);
+      font-size: 1rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      background: linear-gradient(135deg, var(--x-accent), var(--x-accent2));
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      color: transparent;
+    }
+
+    .ext-header span {
+      font-size: 0.7rem;
+      color: var(--x-muted);
+    }
+
+    .ext-header-actions {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+
+    .ext-icon-btn {
+      background: none;
+      border: none;
+      color: var(--x-muted);
+      font-size: 15px;
+      padding: 3px 5px;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+
+    .ext-icon-btn:hover { background: var(--x-border); color: var(--x-fg); }
+
+    .ext-card {
+      background: var(--x-card);
+      border: 1px solid var(--x-border);
+      border-radius: 10px;
+      padding: 0.75rem 0.875rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .ext-card h5 {
+      font-family: var(--font-display);
+      font-size: 0.65rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--x-muted);
+      margin-bottom: 0.5rem;
+    }
+
+    .ext-status-bar {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .view-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.35rem 0;
+      font-size: 0.8rem;
+      color: var(--x-fg);
+    }
+
+    .view-row:not(:last-child) { border-bottom: 1px solid var(--x-border); }
+
+    .view-count {
+      font-size: 0.7rem;
+      font-weight: 600;
+      color: var(--x-muted);
+      background: var(--x-bg);
+      padding: 2px 9px;
+      border-radius: 10px;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--x-green);
+      box-shadow: 0 0 6px rgba(46, 204, 113, 0.5);
+      flex-shrink: 0;
+    }
+
+    .ext-status-text {
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: var(--x-fg);
+    }
+
+    .toggle {
+      position: relative;
+      display: inline-block;
+      width: 34px;
+      height: 18px;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .toggle input { opacity: 0; width: 0; height: 0; }
+
+    .toggle-slider {
+      position: absolute;
+      inset: 0;
+      background: var(--x-border);
+      border-radius: 18px;
+      transition: background 0.3s;
+    }
+
+    .toggle-slider::before {
+      content: '';
+      position: absolute;
+      width: 12px;
+      height: 12px;
+      left: 3px;
+      bottom: 3px;
+      background: #666;
+      border-radius: 50%;
+      transition: transform 0.3s, background 0.3s;
+    }
+
+    .toggle input:checked + .toggle-slider {
+      background: var(--x-green);
+      box-shadow: 0 0 8px rgba(46, 204, 113, 0.4);
+    }
+
+    .toggle input:checked + .toggle-slider::before {
+      transform: translateX(16px);
+      background: #fff;
+    }
+
+    .mock-select {
+      background: var(--x-bg);
+      border: 1px solid var(--x-border);
+      border-radius: 6px;
+      color: var(--x-fg);
+      padding: 3px 7px;
+      font-size: 0.72rem;
+      cursor: pointer;
+      font-family: var(--font-body);
+      outline: none;
+    }
+
+    .mock-select:focus { border-color: var(--x-accent); }
+
+    .volume-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 0.5rem;
+    }
+
+    .volume-row > span:first-child { font-size: 14px; }
+
+    .volume-row input[type="range"] {
+      flex: 1;
+      accent-color: var(--x-accent);
+      height: 4px;
+    }
+
+    .volume-label {
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: var(--x-muted);
+      min-width: 32px;
+      text-align: right;
+    }
+
+    .settings-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.5rem;
+      font-size: 0.8rem;
+      color: var(--x-fg);
+      gap: 0.5rem;
+    }
+
+    .status-chips {
+      display: flex;
+      gap: 0.5rem;
+      font-size: 0.72rem;
+    }
+
+    .status-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      color: var(--x-muted);
+    }
+
+    .status-chip input {
+      accent-color: var(--x-accent);
+      width: 12px;
+      height: 12px;
+    }
+
+    .status-chip.active { color: var(--x-fg); }
+
+    .tone-row { display: flex; align-items: center; gap: 6px; }
+
+    .ext-btn {
+      width: 100%;
+      padding: 7px;
+      border: 1px solid var(--x-border);
+      border-radius: 7px;
+      background: transparent;
+      color: var(--x-fg);
+      font-family: var(--font-body);
+      font-size: 0.78rem;
+      font-weight: 500;
+      cursor: pointer;
+    }
+
+    .ext-btn:hover { background: var(--x-border); }
+
+    .ext-last-checked {
+      font-size: 0.7rem;
+      color: var(--x-muted);
+      text-align: center;
+      margin-top: 0.5rem;
+    }
+
+    .history-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.35rem;
+    }
+
+    .history-header h5 { margin-bottom: 0; }
+
+    .history-clear {
+      background: none;
+      border: none;
+      color: var(--x-accent);
+      font-family: var(--font-body);
+      font-size: 0.7rem;
+      cursor: pointer;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    .history-clear:hover { background: rgba(231, 76, 60, 0.15); }
+
+
+    /* ── How it works ── */
+    .steps-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 1.5rem;
+    }
+
+    .step-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.75rem;
+      text-align: center;
+      transition: box-shadow 0.2s, border-color 0.2s, background 0.3s;
+    }
+
+    .step-card:hover {
+      border-color: var(--muted);
+      box-shadow: 0 4px 24px oklch(18% 0.012 250 / 0.08);
+    }
+
+    .step-num {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: oklch(58% 0.18 255 / 0.1);
+      color: var(--accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--font-display);
+      font-weight: 600;
+      font-size: 0.95rem;
+      margin: 0 auto 1rem;
+      border: 1px solid oklch(58% 0.18 255 / 0.2);
+    }
+
+    [data-theme="dark"] .step-num {
+      background: oklch(68% 0.18 255 / 0.15);
+      border-color: oklch(68% 0.18 255 / 0.3);
+    }
+
+    .step-card h3 {
+      font-family: var(--font-display);
+      font-size: 1rem;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      margin-bottom: 0.5rem;
+      color: var(--fg);
+    }
+
+    .step-card p {
+      font-size: 0.875rem;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+
+    /* ── Features ── */
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 1.5rem;
+    }
+
+    .feature-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.75rem;
+      transition: box-shadow 0.2s, border-color 0.2s, background 0.3s;
+    }
+
+    .feature-card:hover {
+      border-color: var(--muted);
+      box-shadow: 0 4px 24px oklch(18% 0.012 250 / 0.08);
+    }
+
+    .feature-icon {
+      font-size: 1.5rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .feature-card h3 {
+      font-family: var(--font-display);
+      font-size: 1rem;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      margin-bottom: 0.5rem;
+      color: var(--fg);
+    }
+
+    .feature-card p {
+      font-size: 0.875rem;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+
+    /* ── Architecture ── */
+    .arch-diagram {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 2rem;
+      text-align: center;
+      transition: background 0.3s, border-color 0.3s;
+    }
+
+    .arch-flow {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+      margin-bottom: 1.5rem;
+    }
+
+    .arch-flow-row {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+      margin-bottom: 2rem;
+    }
+
+    .arch-box {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1rem 1.25rem;
+      min-width: 160px;
+      transition: background 0.3s, border-color 0.3s;
+    }
+
+    .arch-box h4 {
+      font-family: var(--font-display);
+      font-size: 0.85rem;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      color: var(--fg);
+      margin-bottom: 0.25rem;
+    }
+
+    .arch-box p {
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+
+    .arch-arrow {
+      font-size: 1.25rem;
+      color: var(--muted);
+    }
+
+    .arch-note {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 1rem;
+      text-align: left;
+    }
+
+    .arch-note-item {
+      font-size: 0.85rem;
+      color: var(--muted);
+      padding: 0.9rem 1rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      line-height: 1.55;
+      transition: background 0.3s, border-color 0.3s;
+    }
+
+    .arch-note-item strong {
+      font-family: var(--font-display);
+      color: var(--fg);
+      display: block;
+      margin-bottom: 0.25rem;
+      font-size: 0.9rem;
+    }
+
+    /* ── Code block ── */
+    .code-block {
+      background: var(--code-bg);
+      border: 1px solid var(--code-border);
+      border-radius: 12px;
+      padding: 1.25rem 1.5rem;
+      overflow-x: auto;
+      margin-bottom: 1.25rem;
+      transition: background 0.3s, border-color 0.3s;
+    }
+
+    .code-block pre {
+      font-family: var(--font-mono);
+      font-size: 0.825rem;
+      line-height: 1.7;
+      color: var(--fg);
+    }
+
+    .code-comment  { color: oklch(50% 0.05 150); }
+    .code-keyword  { color: oklch(45% 0.18 255); }
+    .code-string   { color: oklch(50% 0.15 30); }
+    .code-function { color: oklch(45% 0.12 280); }
+
+    [data-theme="dark"] .code-comment  { color: oklch(65% 0.08 150); }
+    [data-theme="dark"] .code-keyword  { color: oklch(75% 0.15 255); }
+    [data-theme="dark"] .code-string   { color: oklch(75% 0.13 40); }
+    [data-theme="dark"] .code-function { color: oklch(80% 0.12 100); }
+
+    /* ── Enterprise & Security ── */
+    .ent-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 1.25rem;
+      margin-bottom: 2.5rem;
+    }
+
+    .ent-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem 1.5rem 1.25rem;
+      transition: background 0.3s, border-color 0.3s, box-shadow 0.2s;
+    }
+
+    .ent-card:hover {
+      border-color: var(--muted);
+      box-shadow: 0 4px 24px oklch(18% 0.012 250 / 0.08);
+    }
+
+    .ent-card-head {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .ent-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 3px 9px;
+      border-radius: 100px;
+    }
+
+    .ent-badge.ok {
+      color: oklch(50% 0.15 145);
+      background: oklch(85% 0.08 145 / 0.25);
+      border: 1px solid oklch(65% 0.15 145 / 0.3);
+    }
+
+    .ent-badge.caveat {
+      color: oklch(55% 0.15 65);
+      background: oklch(85% 0.1 65 / 0.25);
+      border: 1px solid oklch(65% 0.15 65 / 0.3);
+    }
+
+    [data-theme="dark"] .ent-badge.ok {
+      color: oklch(80% 0.15 145);
+      background: oklch(30% 0.08 145 / 0.5);
+      border-color: oklch(55% 0.15 145 / 0.4);
+    }
+
+    [data-theme="dark"] .ent-badge.caveat {
+      color: oklch(80% 0.13 65);
+      background: oklch(30% 0.08 65 / 0.5);
+      border-color: oklch(55% 0.15 65 / 0.4);
+    }
+
+    .ent-card h3 {
+      font-family: var(--font-display);
+      font-size: 1rem;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      color: var(--fg);
+    }
+
+    .ent-card p {
+      font-size: 0.875rem;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    .ent-card p + p { margin-top: 0.5rem; }
+
+    .ent-card code {
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      background: var(--code-bg);
+      border: 1px solid var(--code-border);
+      padding: 1px 6px;
+      border-radius: 4px;
+      color: var(--fg);
+    }
+
+    .ent-summary {
+      max-width: 720px;
+      margin: 0 auto;
+      text-align: center;
+      font-size: 0.9rem;
+      color: var(--muted);
+      line-height: 1.7;
+      padding: 1.25rem 1.5rem;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+    }
+
+    .ent-summary strong { color: var(--fg); }
+
+    /* ── Install ── */
+    .install-steps {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      max-width: 720px;
+      margin: 0 auto;
+    }
+
+    .install-step {
+      display: flex;
+      align-items: flex-start;
+      gap: 1rem;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.25rem 1.5rem;
+      transition: background 0.3s, border-color 0.3s;
+    }
+
+    .install-step .step-num {
+      margin: 0;
+      flex-shrink: 0;
+    }
+
+    .step-content h4 {
+      font-family: var(--font-display);
+      font-size: 0.95rem;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      color: var(--fg);
+      margin-bottom: 0.25rem;
+    }
+
+    .step-content p {
+      font-size: 0.875rem;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+
+    /* ── GitHub CTA ── */
+    .cta-wrap {
+      display: flex;
+      justify-content: center;
+      margin-top: 2rem;
+    }
+
+    .github-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.55rem;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--muted);
+      text-decoration: none;
+      padding: 0.55rem 1rem;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+      transition: color 0.15s, border-color 0.15s, background 0.15s;
+    }
+
+    .github-btn:hover {
+      color: var(--fg);
+      border-color: var(--muted);
+      background: var(--card-bg);
+    }
+
+    .github-btn svg { width: 16px; height: 16px; }
+
+    /* ── Footer ── */
+    footer {
+      padding: 2rem;
+      text-align: center;
+      font-size: 0.8rem;
+      color: var(--muted);
+      border-top: 1px solid var(--border);
+    }
+
+    footer a { color: var(--muted); text-decoration: none; }
+    footer a:hover { color: var(--fg); }
+
+    @media (max-width: 640px) {
+      .hero { padding: 120px 1.5rem 60px; }
+      section { padding: 40px 1.5rem; }
+    }
+  </style>
+</head>
+<body>
+
+  <nav>
+    <div class="nav-inner">
+      <a href="#" class="wordmark">
+        <img src="icon48.png" alt="ZenNotif">
+        ZenNotif
+      </a>
+      <button class="nav-toggle" onclick="document.querySelector('.nav-links').classList.toggle('open')" aria-label="Menu">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round">
+          <line x1="3" y1="6" x2="21" y2="6"/>
+          <line x1="3" y1="12" x2="21" y2="12"/>
+          <line x1="3" y1="18" x2="21" y2="18"/>
+        </svg>
+      </button>
+      <ul class="nav-links">
+        <li><a href="#interface">Interface</a></li>
+        <li><a href="#how">How It Works</a></li>
+        <li><a href="#features">Features</a></li>
+        <li><a href="#enterprise">Enterprise</a></li>
+        <li><a href="#architecture">Architecture</a></li>
+        <li><a href="#install">Install</a></li>
+      </ul>
+      <button class="theme-toggle" id="themeToggle" aria-label="Toggle theme">
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+      </button>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <section class="hero">
+    <p class="hero-eyebrow">✦ Chrome Extension &mdash; Manifest V3</p>
+    <h1>Never Miss a Critical Zendesk Ticket Again</h1>
+    <p class="hero-sub">ZenNotif delivers persistent audio alerts for new Zendesk tickets — even when the tab is in the background. Built with Chrome Manifest V3, zero API tokens required.</p>
+    <div class="hero-tags">
+      <span class="tag">Sound Alerts</span>
+      <span class="tag">Cross-Tab Audio</span>
+      <span class="tag">Zero API Setup</span>
+      <span class="tag">Manifest V3</span>
+      <span class="tag">Open Source</span>
+    </div>
+  </section>
+
+  <!-- Interface -->
+  <section id="interface">
+    <div class="section-inner">
+      <p class="section-label">Interface</p>
+      <h2 class="section-title">Extension Popup Dashboard</h2>
+
+      <div class="mockup-grid">
+        <div class="interface-showcase">
+          <img src="screenshots/screenshot-dashboard.png" alt="ZenNotif dashboard showing monitored views, settings, and notification history">
+          <p class="interface-caption">
+            The ZenNotif popup displays monitored Zendesk views, polling settings, tone selection, volume control, and recent notification history.
+          </p>
+        </div>
+
+        <div class="ext-mockup" aria-label="ZenNotif extension popup mockup">
+          <div class="ext-header">
+            <img src="icon48.png" alt="ZenNotif">
+            <div>
+              <h4>ZenNotif</h4>
+              <span>agent@acme.zendesk.com</span>
+            </div>
+            <div class="ext-header-actions">
+              <label class="toggle" title="Enable monitoring">
+                <input type="checkbox" checked>
+                <span class="toggle-slider"></span>
+              </label>
+              <button class="ext-icon-btn" title="Settings" aria-label="Settings">⚙️</button>
+            </div>
+          </div>
+
+          <div class="ext-card">
+            <div class="ext-status-bar">
+              <div class="status-dot"></div>
+              <span class="ext-status-text">Connected</span>
+            </div>
+          </div>
+
+          <div class="ext-card">
+            <h5>Monitored Views</h5>
+            <div class="view-row">
+              <span>Unassigned Tickets</span>
+              <span class="view-count">3</span>
+            </div>
+            <div class="view-row">
+              <span>High Priority</span>
+              <span class="view-count">1</span>
+            </div>
+            <div class="view-row">
+              <span>My Open Tickets</span>
+              <span class="view-count">7</span>
+            </div>
+          </div>
+
+          <div class="ext-card">
+            <h5>Settings</h5>
+
+            <div class="settings-row">
+              <span>⏱️ Check Speed</span>
+              <select class="mock-select">
+                <option>Fast (10s)</option>
+                <option selected>Medium (30s)</option>
+                <option>Normal (1m)</option>
+              </select>
+            </div>
+
+            <div class="settings-row">
+              <span>🎯 Statuses</span>
+              <div class="status-chips">
+                <label class="status-chip active"><input type="checkbox" checked> New</label>
+                <label class="status-chip active"><input type="checkbox" checked> Open</label>
+                <label class="status-chip"><input type="checkbox"> Pending</label>
+              </div>
+            </div>
+
+            <div class="settings-row">
+              <span>🔔 Tone</span>
+              <div class="tone-row">
+                <select class="mock-select">
+                  <option selected>Default</option>
+                  <option>Bell</option>
+                  <option>Chime</option>
+                  <option>Alert</option>
+                  <option>Soft</option>
+                </select>
+                <button class="ext-icon-btn" title="Test tone" aria-label="Test tone">▶️</button>
+              </div>
+            </div>
+
+            <div class="volume-row">
+              <span>🔊</span>
+              <input type="range" min="0" max="100" value="80">
+              <span class="volume-label">80%</span>
+            </div>
+          </div>
+
+          <div class="ext-card">
+            <button class="ext-btn">🔄 Check Now</button>
+            <p class="ext-last-checked">Last checked: 10:24:51</p>
+          </div>
+
+          <div class="ext-card" style="margin-bottom:0;">
+            <div class="history-header">
+              <h5>Recent History</h5>
+              <button class="history-clear">Clear</button>
+            </div>
+            <p style="font-size:0.72rem;color:var(--x-muted);padding:0.25rem 0;">No notifications yet.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- How It Works -->
+  <section id="how">
+    <div class="section-inner">
+      <p class="section-label">Process</p>
+      <h2 class="section-title">How It Works</h2>
+
+      <div class="steps-grid">
+        <div class="step-card">
+          <div class="step-num">1</div>
+          <h3>Connect</h3>
+          <p>Enter your Zendesk subdomain. The extension uses your existing browser session — no API tokens needed.</p>
+        </div>
+
+        <div class="step-card">
+          <div class="step-num">2</div>
+          <h3>Select Views</h3>
+          <p>Choose which Zendesk views to monitor. Pick from any view available in your instance.</p>
+        </div>
+
+        <div class="step-card">
+          <div class="step-num">3</div>
+          <h3>Configure Alerts</h3>
+          <p>Set polling interval (10s / 30s / 60s), choose tone, and adjust volume to suit your environment.</p>
+        </div>
+
+        <div class="step-card">
+          <div class="step-num">4</div>
+          <h3>Receive Notifications</h3>
+          <p>When new tickets arrive, ZenNotif plays audio through Chrome's offscreen document — even in background tabs.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Features -->
+  <section id="features">
+    <div class="section-inner">
+      <p class="section-label">Features</p>
+      <h2 class="section-title">What Makes ZenNotif Different</h2>
+
+      <div class="features-grid">
+        <div class="feature-card">
+          <div class="feature-icon">🔊</div>
+          <h3>Cross-Tab Audio Alerts</h3>
+          <p>Sound plays through Chrome's offscreen document system, so you hear alerts even when Zendesk is in a background tab or minimized.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">🔑</div>
+          <h3>Zero API Tokens</h3>
+          <p>Uses your existing Zendesk session cookie — no API tokens, no setup friction, no security risks for non-technical agents.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">⚡</div>
+          <h3>Configurable Polling</h3>
+          <p>Choose from Fast (10s), Medium (30s), or Normal (1 min) polling intervals to balance responsiveness with resource usage.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">🎵</div>
+          <h3>Multiple Tones</h3>
+          <p>Select from Default, Bell, Chime, Alert, or Soft tones. Adjustable volume slider to suit open offices or quiet environments.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">📋</div>
+          <h3>Selective View Monitoring</h3>
+          <p>Monitor only the Zendesk views that matter to your role. Pick from any view in your instance with a single click.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">📊</div>
+          <h3>Notification History</h3>
+          <p>Track recent alerts in the popup dashboard. See ticket subjects, arrival times, and status at a glance with one-click navigation.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Enterprise & Security -->
+  <section id="enterprise">
+    <div class="section-inner">
+      <p class="section-label">Enterprise Readiness</p>
+      <h2 class="section-title">Security &amp; Firewall Considerations</h2>
+
+      <div class="ent-grid">
+        <div class="ent-card">
+          <div class="ent-card-head">
+            <span class="ent-badge ok">✓ Works</span>
+            <h3>Corporate VPN</h3>
+          </div>
+          <p>ZenNotif uses standard HTTPS to <code>&lt;subdomain&gt;.zendesk.com/api/v2</code> with your existing session cookie. Any VPN or firewall that already permits agents to use Zendesk in the browser will permit ZenNotif too.</p>
+        </div>
+
+        <div class="ent-card">
+          <div class="ent-card-head">
+            <span class="ent-badge ok">✓ Works</span>
+            <h3>Host Mapping</h3>
+          </div>
+          <p>Custom Help Center domains (e.g. <code>help.company.com</code>) don't affect the agent workspace. ZenNotif always talks to the canonical Zendesk API subdomain, so host-mapped instances behave identically to standard ones.</p>
+        </div>
+
+        <div class="ent-card">
+          <div class="ent-card-head">
+            <span class="ent-badge ok">✓ Works</span>
+            <h3>SSO &amp; SAML</h3>
+          </div>
+          <p>Because auth relies on the browser's session cookie, whatever login flow your org uses — Okta, Azure AD, Google, password — just works. No tokens to rotate, no secrets to manage per agent.</p>
+        </div>
+
+        <div class="ent-card">
+          <div class="ent-card-head">
+            <span class="ent-badge caveat">!  Caveat</span>
+            <h3>SSL Inspection / CASB</h3>
+          </div>
+          <p>If your corporate proxy intercepts HTTPS with a custom root CA, make sure that CA is trusted by Chrome's store. Blocks caused by CASB policies surface as a clear "Connection error" in the popup — no silent failures.</p>
+        </div>
+
+        <div class="ent-card">
+          <div class="ent-card-head">
+            <span class="ent-badge caveat">!  Caveat</span>
+            <h3>Chrome Enterprise Policy</h3>
+          </div>
+          <p>If IT uses <code>ExtensionInstallBlocklist</code>, agents need the extension ID added to the allowlist. Load-unpacked developer mode is blocked by default in managed fleets — a one-line policy change unblocks it.</p>
+        </div>
+
+        <div class="ent-card">
+          <div class="ent-card-head">
+            <span class="ent-badge ok">✓ Privacy</span>
+            <h3>Data Stays Local</h3>
+          </div>
+          <p>All ticket snapshots, history, and preferences live in <code>chrome.storage</code> on the agent's machine. Nothing is transmitted to third-party servers. No analytics, no telemetry, no external dependencies.</p>
+        </div>
+      </div>
+
+      <p class="ent-summary">
+        <strong>Quick IT smoke test:</strong> open
+        <code>https://&lt;subdomain&gt;.zendesk.com/api/v2/users/me.json</code>
+        in a new tab. If JSON appears, the network path is clear for ZenNotif. If the request is blocked, loop in your security team — the extension surfaces the same error.
+      </p>
+    </div>
+  </section>
+
+  <!-- Architecture -->
+  <section id="architecture">
+    <div class="section-inner">
+      <p class="section-label">Technical</p>
+      <h2 class="section-title">Manifest V3 Architecture</h2>
+
+      <div class="arch-diagram">
+        <div class="arch-flow">
+          <div class="arch-box">
+            <h4>Content Script</h4>
+            <p>Keep-Alive Pinger</p>
+          </div>
+          <span class="arch-arrow">→</span>
+          <div class="arch-box">
+            <h4>Service Worker</h4>
+            <p>Background Polling</p>
+          </div>
+          <span class="arch-arrow">→</span>
+          <div class="arch-box">
+            <h4>Offscreen Doc</h4>
+            <p>Audio Playback</p>
+          </div>
+        </div>
+        <div class="arch-flow-row">
+          <span class="arch-arrow">↓</span>
+          <div class="arch-box" style="min-width:200px;">
+            <h4>Zendesk API</h4>
+            <p>Session Cookie Auth</p>
+          </div>
+          <span class="arch-arrow">↑</span>
+        </div>
+
+        <div class="arch-note">
+          <div class="arch-note-item">
+            <strong>Service Worker</strong>
+            Handles background polling, alarm scheduling, and state management. Replaces the persistent background page from Manifest V2.
+          </div>
+          <div class="arch-note-item">
+            <strong>Offscreen Document</strong>
+            Required in Manifest V3 for DOM-based audio playback. The service worker delegates sound playback to this hidden page.
+          </div>
+          <div class="arch-note-item">
+            <strong>Content Script</strong>
+            Injects a keep-alive pinger into Zendesk pages to prevent the service worker from hibernating during long sessions.
+          </div>
+          <div class="arch-note-item">
+            <strong>Session Cookie Auth</strong>
+            Leverages the user's existing Zendesk login session — no API token setup required, seamless integration.
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Code -->
+  <section id="code">
+    <div class="section-inner">
+      <p class="section-label">Code</p>
+      <h2 class="section-title">Implementation Highlights</h2>
+
+      <div class="code-block">
+<pre><span class="code-comment">// Background polling with alarm-based scheduling</span>
+<span class="code-keyword">chrome</span>.alarms.<span class="code-function">create</span>(<span class="code-string">'zennotif-poll'</span>, {
+  periodInMinutes: <span class="code-function">parseInt</span>(interval) / <span class="code-keyword">60</span>
+});
+
+<span class="code-keyword">chrome</span>.alarms.onAlarm.<span class="code-function">addListener</span>(<span class="code-keyword">async</span> (alarm) => {
+  <span class="code-keyword">if</span> (alarm.name === <span class="code-string">'zennotif-poll'</span>) {
+    <span class="code-keyword">const</span> tickets = <span class="code-keyword">await</span> <span class="code-function">fetchTickets</span>(subdomain, viewId);
+    <span class="code-keyword">const</span> newTickets = <span class="code-function">filterNewTickets</span>(tickets, lastCheck);
+    <span class="code-keyword">if</span> (newTickets.length &gt; <span class="code-keyword">0</span>) {
+      <span class="code-function">playNotificationSound</span>(tone, volume);
+      <span class="code-function">showBrowserNotification</span>(newTickets);
+    }
+  }
+});</pre>
+      </div>
+
+      <div class="code-block">
+<pre><span class="code-comment">// Offscreen document for audio playback (Manifest V3)</span>
+<span class="code-keyword">async function</span> <span class="code-function">playNotificationSound</span>(tone, volume) {
+  <span class="code-keyword">await</span> <span class="code-function">createOffscreen</span>();
+  <span class="code-keyword">await</span> chrome.runtime.<span class="code-function">sendMessage</span>({
+    type: <span class="code-string">'play-sound'</span>,
+    tone: tone,
+    volume: volume / <span class="code-keyword">100</span>
+  });
+}
+
+<span class="code-keyword">async function</span> <span class="code-function">createOffscreen</span>() {
+  <span class="code-keyword">if</span> (<span class="code-keyword">await</span> <span class="code-function">hasOffscreenDocument</span>()) <span class="code-keyword">return</span>;
+  <span class="code-keyword">await</span> chrome.offscreen.<span class="code-function">createDocument</span>({
+    url: <span class="code-string">'offscreen.html'</span>,
+    reasons: [<span class="code-string">'AUDIO_PLAYBACK'</span>],
+    justification: <span class="code-string">'Required to play ticket notification sounds.'</span>
+  });
+}</pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- Install -->
+  <section id="install">
+    <div class="section-inner">
+      <p class="section-label">Get Started</p>
+      <h2 class="section-title">Install ZenNotif</h2>
+
+      <div class="install-steps">
+        <div class="install-step">
+          <div class="step-num">1</div>
+          <div class="step-content">
+            <h4>Download the Extension</h4>
+            <p>Clone or download the repository from GitHub. Extract the ZIP file to a folder on your computer.</p>
+          </div>
+        </div>
+        <div class="install-step">
+          <div class="step-num">2</div>
+          <div class="step-content">
+            <h4>Enable Developer Mode</h4>
+            <p>Open Chrome and navigate to chrome://extensions. Toggle "Developer mode" on in the top-right corner.</p>
+          </div>
+        </div>
+        <div class="install-step">
+          <div class="step-num">3</div>
+          <div class="step-content">
+            <h4>Load Unpacked</h4>
+            <p>Click "Load unpacked" and select the folder containing the extension files (the folder with manifest.json).</p>
+          </div>
+        </div>
+        <div class="install-step">
+          <div class="step-num">4</div>
+          <div class="step-content">
+            <h4>Connect to Zendesk</h4>
+            <p>Click the ZenNotif icon in your toolbar. Enter your Zendesk subdomain, select views to monitor, and start receiving alerts.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="cta-wrap">
+        <a href="https://github.com/ilhamsugoi/zennotif" class="github-btn" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
+          View on GitHub
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <p>© 2026 — ZenNotif Demo · Built with Chrome Manifest V3</p>
+  </footer>
+
+  <script>
+    // Theme toggle
+    const toggle = document.getElementById('themeToggle');
+    const html = document.documentElement;
+
+    const saved = localStorage.getItem('theme');
+    if (saved) {
+      html.setAttribute('data-theme', saved);
+    } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+      html.setAttribute('data-theme', 'dark');
+    }
+
+    toggle.addEventListener('click', () => {
+      const isDark = html.getAttribute('data-theme') === 'dark';
+      if (isDark) {
+        html.removeAttribute('data-theme');
+        localStorage.setItem('theme', 'light');
+      } else {
+        html.setAttribute('data-theme', 'dark');
+        localStorage.setItem('theme', 'dark');
+      }
+    });
+  </script>
+
+</body>
+</html>
