@@ -33,11 +33,16 @@ async function playSound() {
   const soundURL = chrome.runtime.getURL('notifikasi.mp3');
   await ensureOffscreen();
   setTimeout(() => {
-    chrome.runtime.sendMessage({ target: 'offscreen', type: 'play-sound', url: soundURL, volume, tone });
+    chrome.runtime.sendMessage({ target: 'offscreen', type: 'play-sound', url: soundURL, volume, tone })
+      .catch(() => {}); // Offscreen may still be spinning up; next poll will retry.
   }, 100);
 }
 
 // --- Fetch Tickets (Session Cookie Auth — NO API Token!) ---
+// Returns: array of ticket objects on success, or a string token on known failures:
+//   'unauthorized'  → 401/403
+//   'rate-limited'  → 429
+//   'error'         → network/other
 async function fetchTickets(subdomain, viewId) {
   const allTickets = [];
   let nextUrl = `https://${subdomain}.zendesk.com/api/v2/views/${viewId}/tickets.json?per_page=100`;
@@ -46,13 +51,19 @@ async function fetchTickets(subdomain, viewId) {
   try {
     while (nextUrl && page < 10) {
       page++;
-      const response = await fetch(nextUrl, { credentials: 'include', cache: 'no-cache' });
+      let response;
+      // Simple retry for 429 with Retry-After (cap at 2 attempts per page).
+      for (let attempt = 0; attempt < 2; attempt++) {
+        response = await fetch(nextUrl, { credentials: 'include', cache: 'no-cache' });
+        if (response.status !== 429) break;
+        const retryAfter = parseInt(response.headers.get('Retry-After') || '2', 10);
+        await new Promise(r => setTimeout(r, Math.min(retryAfter, 10) * 1000));
+      }
 
       if (!response.ok) {
-        if (response.status === 401 || response.status === 403) {
-          await chrome.storage.local.set({ connectionStatus: 'expired' });
-        }
-        return null;
+        if (response.status === 401 || response.status === 403) return 'unauthorized';
+        if (response.status === 429) return 'rate-limited';
+        return 'error';
       }
 
       const data = await response.json();
@@ -65,14 +76,39 @@ async function fetchTickets(subdomain, viewId) {
     }
     return allTickets;
   } catch (error) {
-    console.error("Network error:", error);
-    await chrome.storage.local.set({ connectionStatus: 'error' });
-    return null;
+    console.error('ZenNotif: network error', error);
+    return 'error';
   }
 }
 
+// --- Snapshot size guard ---
+// chrome.storage.local has a 10 MB quota. A view with 50k+ tickets could
+// push a single snapshot past 5 MB on its own. Cap per-view snapshot size.
+const MAX_SNAPSHOT_ENTRIES = 5000;
+
+function trimSnapshot(map) {
+  const keys = Object.keys(map);
+  if (keys.length <= MAX_SNAPSHOT_ENTRIES) return map;
+  // Keep the most-recent ticket IDs (numerically highest = newest in Zendesk).
+  const sorted = keys.map(Number).sort((a, b) => b - a).slice(0, MAX_SNAPSHOT_ENTRIES);
+  const trimmed = {};
+  for (const id of sorted) trimmed[id] = map[id];
+  return trimmed;
+}
+
 // --- Main Check ---
-async function checkZendesk() {
+// Guard against concurrent runs. Pinger (content.js + offscreen.js) and chrome.alarms
+// can both fire near-simultaneously; without this, snapshots can be overwritten
+// mid-comparison and notifications lost.
+let checkInFlight = null;
+
+function checkZendesk() {
+  if (checkInFlight) return checkInFlight;
+  checkInFlight = _checkZendesk().finally(() => { checkInFlight = null; });
+  return checkInFlight;
+}
+
+async function _checkZendesk() {
   const { subdomain, views = [], enabled = true, notifyStatuses = ['new', 'open'] } = await chrome.storage.sync.get(['subdomain', 'views', 'enabled', 'notifyStatuses']);
   
   if (!subdomain || views.length === 0) return;
@@ -81,10 +117,19 @@ async function checkZendesk() {
   }
 
   const allNewTickets = [];
+  let hadUnauthorized = false;
+  let hadRateLimited = false;
+  let hadError = false;
 
   for (const view of views) {
-    const currentTickets = await fetchTickets(subdomain, view.id);
-    if (!currentTickets) continue;
+    const result = await fetchTickets(subdomain, view.id);
+    if (typeof result === 'string') {
+      if (result === 'unauthorized') hadUnauthorized = true;
+      else if (result === 'rate-limited') hadRateLimited = true;
+      else hadError = true;
+      continue;
+    }
+    const currentTickets = result;
 
     const storageKey = `snapshot_${view.id}`;
     const stored = await chrome.storage.local.get(storageKey);
@@ -94,7 +139,10 @@ async function checkZendesk() {
     if (previousMap === null) {
       const initMap = {};
       currentTickets.forEach(t => { initMap[t.id] = t.status; });
-      await chrome.storage.local.set({ [storageKey]: initMap, [`count_${view.id}`]: currentTickets.length });
+      await chrome.storage.local.set({
+        [storageKey]: trimSnapshot(initMap),
+        [`count_${view.id}`]: currentTickets.length
+      });
       continue;
     }
 
@@ -119,36 +167,60 @@ async function checkZendesk() {
     // Update snapshot
     const newMap = {};
     currentTickets.forEach(t => { newMap[t.id] = t.status; });
-    await chrome.storage.local.set({ [storageKey]: newMap, [`count_${view.id}`]: currentTickets.length });
+    await chrome.storage.local.set({
+      [storageKey]: trimSnapshot(newMap),
+      [`count_${view.id}`]: currentTickets.length
+    });
   }
 
-  // Update status
-  await chrome.storage.local.set({ 
-    connectionStatus: 'connected', 
+  // Resolve connection status from this run's outcomes.
+  let connectionStatus = 'connected';
+  if (hadUnauthorized) connectionStatus = 'expired';
+  else if (hadRateLimited) connectionStatus = 'rate-limited';
+  else if (hadError && allNewTickets.length === 0) connectionStatus = 'error';
+
+  await chrome.storage.local.set({
+    connectionStatus,
     lastChecked: new Date().toISOString(),
     lastCheckedTime: Date.now()
   });
 
   if (allNewTickets.length > 0) {
     playSound();
-    
+
     // Accumulate badge count (don't clear)
     chrome.action.getBadgeText({}, (currentText) => {
       const currentCount = parseInt(currentText) || 0;
       chrome.action.setBadgeText({ text: String(currentCount + allNewTickets.length) });
     });
-    
+
     chrome.action.setBadgeBackgroundColor({ color: '#E74C3C' });
 
     const lines = allNewTickets.slice(0, 3).map(t => `[${t.reason}] ${t.subject}`);
     const message = lines.join('\n') + (allNewTickets.length > 3 ? `\n+${allNewTickets.length - 3} more` : '');
-    chrome.notifications.create(`zennotif-${Date.now()}`, {
+    const notifId = `zennotif-${Date.now()}`;
+    chrome.notifications.create(notifId, {
       type: 'basic',
       title: `🔔 ${allNewTickets.length} ticket(s) need attention`,
       message,
       iconUrl: chrome.runtime.getURL('icon.png'),
       priority: 2
     });
+
+    // Remember which ticket (if any) this notification corresponds to, so that
+    // clicking it can deep-link to the ticket when there's only one.
+    const contextData = await chrome.storage.local.get('notificationContext');
+    const context = contextData.notificationContext || {};
+    context[notifId] = allNewTickets.length === 1
+      ? { ticketId: allNewTickets[0].id }
+      : { ticketId: null };
+    // Prune old entries (keep last 20).
+    const ids = Object.keys(context);
+    if (ids.length > 20) {
+      const toRemove = ids.slice(0, ids.length - 20);
+      for (const id of toRemove) delete context[id];
+    }
+    await chrome.storage.local.set({ notificationContext: context });
 
     // Store for popup history
     const historyData = await chrome.storage.local.get('history');
@@ -159,12 +231,27 @@ async function checkZendesk() {
 }
 
 // --- API: Validate Session ---
-async function validateSession(subdomain) {
+// Cached for 5 minutes per subdomain to avoid repeat /users/me.json calls on
+// popup re-open. Callers that need a fresh check can pass { force: true }.
+const USER_CACHE_TTL_MS = 5 * 60 * 1000;
+
+async function validateSession(subdomain, { force = false } = {}) {
+  if (!force) {
+    const cached = await chrome.storage.local.get('userCache');
+    const entry = cached.userCache && cached.userCache[subdomain];
+    if (entry && (Date.now() - entry.ts) < USER_CACHE_TTL_MS) {
+      return { name: entry.name, email: entry.email };
+    }
+  }
   try {
     const res = await fetch(`https://${subdomain}.zendesk.com/api/v2/users/me.json`, { credentials: 'include', cache: 'no-cache' });
     if (!res.ok) return null;
     const data = await res.json();
-    return { name: data.user.name, email: data.user.email };
+    const user = { name: data.user.name, email: data.user.email };
+    const { userCache = {} } = await chrome.storage.local.get('userCache');
+    userCache[subdomain] = { ...user, ts: Date.now() };
+    await chrome.storage.local.set({ userCache });
+    return user;
   } catch { return null; }
 }
 
@@ -237,7 +324,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }, 100);
     });
   }
-  if (msg.type === 'content-ping' || msg.type === 'offscreen-ping') {
+  if (msg.type === 'content-ping') {
     chrome.storage.sync.get(['interval', 'enabled'], (config) => {
       if (config.enabled === false) return;
       const intervalSec = (config.interval && config.interval < 10) ? config.interval * 60 : (config.interval || 60);
@@ -304,12 +391,23 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 
 // Open Zendesk ticket when notification clicked
 chrome.notifications.onClicked.addListener(async (notifId) => {
-  if (notifId.startsWith('zennotif-')) {
-    const config = await chrome.storage.sync.get(['subdomain']);
-    if (config.subdomain) {
-      chrome.tabs.create({ url: `https://${config.subdomain}.zendesk.com/agent/dashboard` });
-    }
-  }
+  if (!notifId.startsWith('zennotif-')) return;
+  const [{ subdomain } = {}, { notificationContext = {} } = {}] = await Promise.all([
+    chrome.storage.sync.get(['subdomain']),
+    chrome.storage.local.get('notificationContext')
+  ]);
+  if (!subdomain) return;
+
+  const ctx = notificationContext[notifId];
+  const url = ctx && ctx.ticketId
+    ? `https://${subdomain}.zendesk.com/agent/tickets/${ctx.ticketId}`
+    : `https://${subdomain}.zendesk.com/agent/dashboard`;
+  chrome.tabs.create({ url });
+
+  // Clean up the context entry and dismiss the notification.
+  delete notificationContext[notifId];
+  await chrome.storage.local.set({ notificationContext });
+  chrome.notifications.clear(notifId);
 });
 
 // Restart loop every time Service Worker wakes up from sleep

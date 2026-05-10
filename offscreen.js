@@ -56,7 +56,11 @@ chrome.runtime.onMessage.addListener((msg) => {
       // Play the MP3 file
       const audio = new Audio(msg.url);
       audio.volume = volume;
-      audio.play();
+      audio.play().catch((err) => {
+        // Autoplay policy may block playback if the offscreen doc just opened.
+        // Not fatal — next poll will try again.
+        console.warn('ZenNotif: audio.play() blocked', err);
+      });
     } else {
       // Generate tone using Web Audio API
       generateTone(tone, volume);
@@ -64,8 +68,6 @@ chrome.runtime.onMessage.addListener((msg) => {
   }
 });
 
-// Pinger interval in offscreen to prevent Chrome background tab throttling.
-// This ensures the 10-second interval runs on time and keeps the audio connection alive.
-setInterval(() => {
-  chrome.runtime.sendMessage({ type: 'offscreen-ping' }).catch(() => {});
-}, 5000);
+// Note: keep-alive ping is handled by content.js (running inside Zendesk tabs).
+// Offscreen document only needs to be awake while audio is playing; Chrome will
+// suspend it otherwise, which is fine. A second pinger here would be redundant.

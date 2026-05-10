@@ -24,8 +24,24 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 // ==================== SETUP SCREEN ====================
 
+// Normalize subdomain input: accepts "mycompany", "mycompany.zendesk.com",
+// "https://mycompany.zendesk.com/agent/...", with trailing slashes/whitespace.
+function normalizeSubdomain(raw) {
+  if (!raw) return '';
+  let s = raw.trim().toLowerCase();
+  // Strip protocol
+  s = s.replace(/^https?:\/\//, '');
+  // Strip path/query
+  s = s.split('/')[0];
+  // Strip ".zendesk.com" suffix
+  s = s.replace(/\.zendesk\.com$/, '');
+  // Keep only valid subdomain characters
+  s = s.replace(/[^a-z0-9-]/g, '');
+  return s;
+}
+
 $('#btn-connect').addEventListener('click', async () => {
-  const subdomain = $('#input-subdomain').value.trim().toLowerCase();
+  const subdomain = normalizeSubdomain($('#input-subdomain').value);
   if (!subdomain) return;
   const btn = $('#btn-connect');
   const btnText = btn.querySelector('.btn-text');
@@ -147,10 +163,23 @@ async function renderStatus() {
   const dot = $('#status-dot');
   const text = $('#status-text');
   const status = data.connectionStatus || 'connecting';
-  dot.className = `status-dot ${status === 'connected' ? 'connected' : status === 'expired' ? 'expired' : 'error'}`;
-  if (status === 'connected') text.textContent = 'Connected';
-  else if (status === 'expired') text.textContent = 'Session expired — log in to Zendesk';
-  else text.textContent = 'Connecting...';
+  let dotClass = 'error';
+  let label = 'Connecting...';
+  if (status === 'connected') {
+    dotClass = 'connected';
+    label = 'Connected';
+  } else if (status === 'expired') {
+    dotClass = 'expired';
+    label = 'Session expired — log in to Zendesk';
+  } else if (status === 'rate-limited') {
+    dotClass = 'expired';
+    label = 'Rate limited — Zendesk is throttling requests';
+  } else if (status === 'error') {
+    dotClass = 'error';
+    label = 'Connection error — retrying...';
+  }
+  dot.className = `status-dot ${dotClass}`;
+  text.textContent = label;
   if (data.lastChecked) {
     const time = new Date(data.lastChecked).toLocaleTimeString('en-US');
     $('#last-checked').textContent = `Last checked: ${time}`;

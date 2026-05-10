@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ZenNotif - Zendesk Ticket Notifier",
-  "version": "5.0",
+  "version": "5.1.0",
   "description": "Sound notifications for new Zendesk tickets. No API token required.",
   "permissions": [
     "alarms",
@@ -39,10 +39,5 @@
       "resources": ["notifikasi.mp3", "icon.png"],
       "matches": ["<all_urls>"]
     }
-  ],
-  "offscreen": {
-    "pages": ["offscreen.html"],
-    "reasons": ["AUDIO_PLAYBACK"],
-    "justification": "Required to play ticket notification sounds."
-  }
+  ]
 }
