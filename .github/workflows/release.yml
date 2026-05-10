@@ -1,0 +1,62 @@
+name: Release
+
+# Packages the extension into a zip and attaches it to a GitHub Release
+# whenever a tag matching v*.*.* is pushed.
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    name: Package & publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read version from manifest.json
+        id: manifest
+        run: |
+          version=$(node -p "require('./manifest.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Detected manifest version: $version"
+
+      - name: Verify tag matches manifest version
+        run: |
+          tag="${GITHUB_REF#refs/tags/v}"
+          manifest="${{ steps.manifest.outputs.version }}"
+          if [ "$tag" != "$manifest" ]; then
+            echo "::error::Tag v$tag does not match manifest.json version $manifest"
+            exit 1
+          fi
+
+      - name: Build zip (extension files only)
+        run: |
+          mkdir -p dist
+          zip -r "dist/zennotif-v${{ steps.manifest.outputs.version }}.zip" . \
+            -x ".git/*" \
+            -x ".github/*" \
+            -x "docs/*" \
+            -x "dist/*" \
+            -x "*.md" \
+            -x "update_icon.py" \
+            -x "ringing-video-thumbnail.jpg" \
+            -x "screenshot-dashboard.png"
+
+      - name: Publish Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/zennotif-v${{ steps.manifest.outputs.version }}.zip
+          generate_release_notes: true
+          body: |
+            Install:
+            1. Download the zip below
+            2. Extract it
+            3. Open `chrome://extensions`, enable Developer mode, click **Load unpacked**, and select the extracted folder
+
+            See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
